@@ -1,0 +1,35 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.Python
+*.egg-info/
+dist/
+build/
+
+# Notion generated IDs (machine-specific)
+notion_setup/db_ids.json
+
+# Logs
+logs/
+*.log
+*.error.log
+
+# Project output files
+projects/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
