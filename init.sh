@@ -173,14 +173,6 @@ step "8/9" "Registering this machine in Notion"
 bash scripts/register_machine.sh
 log "Machine registered"
 
-# ─── Step 9: Install service ──────────────────────────────────────────────────
-step "9/9" "Installing system service for auto-start"
-if [ "$OS_NAME" = "Linux" ]; then
-    _install_systemd
-elif [ "$OS_NAME" = "macOS" ]; then
-    _install_launchd
-fi
-
 # ─── Service install functions ────────────────────────────────────────────────
 function _install_systemd() {
     SERVICE_FILE="/etc/systemd/system/agent-farm.service"
@@ -196,7 +188,7 @@ Type=simple
 User=$USER
 WorkingDirectory=$REPO_ROOT
 EnvironmentFile=$REPO_ROOT/.env
-ExecStart=$VENV_PYTHON orchestrator/main.py
+ExecStart=$VENV_PYTHON -m orchestrator.main
 Restart=always
 RestartSec=30
 StandardOutput=journal
@@ -263,6 +255,14 @@ EOF
     info "Check status: launchctl list | grep agentfarm"
     info "View logs:    tail -f $REPO_ROOT/logs/orchestrator.log"
 }
+
+# ─── Step 9: Install service ──────────────────────────────────────────────────
+step "9/9" "Installing system service for auto-start"
+if [ "$OS_NAME" = "Linux" ]; then
+    _install_systemd
+elif [ "$OS_NAME" = "macOS" ]; then
+    _install_launchd
+fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""

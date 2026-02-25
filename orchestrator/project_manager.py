@@ -13,10 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectManager:
-    def __init__(self, notion_client, llm_client, config: dict):
+    def __init__(self, notion_client, llm_client, config: dict, learnings_manager=None):
         self.notion = notion_client
         self.llm = llm_client
         self.config = config
+        self.learnings = learnings_manager
 
         # Config values
         self.scale_threshold   = float(config.get("scale_threshold_usd", "10"))
@@ -141,6 +142,8 @@ class ProjectManager:
                     result=reason,
                 )
                 logger.info(f"Archived project: {name} — {reason}")
+                if self.learnings:
+                    self.learnings.extract_from_project(project, outcome="failure")
                 actions["archived"].append(name)
 
         return actions
@@ -152,6 +155,8 @@ class ProjectManager:
         revenue_30d = project.get("revenue_30d", 0.0)
 
         self.notion.update_project_status(project_id, "scaling")
+        if self.learnings:
+            self.learnings.extract_from_project(project, outcome="success")
 
         # Create scaling analysis task
         self.notion.create_task(
@@ -193,17 +198,25 @@ class ProjectManager:
             logger.debug(f"At max projects ({self.parallel_max}), skipping idea generation")
             return 0
 
-        # Create a generate_ideas task for the research agent
+        learnings_brief = self.learnings.get_intelligence_brief() if self.learnings else ""
+        strategy_brief = self.notion.get_config_value("strategy_brief", "")
+
+        instructions = (
+            "GENERATE_IDEAS\n"
+            f"Generate 3 new profitable micro-project ideas.\n"
+            f"Current active projects: {[p['name'] for p in active_projects]}\n"
+            "Avoid ideas similar to existing projects. "
+            "Focus on quick wins with minimal execution cost.\n"
+        )
+        if learnings_brief:
+            instructions += f"\n{learnings_brief}\n"
+        if strategy_brief:
+            instructions += f"\nSTRATEGIC DIRECTION:\n{strategy_brief}\n"
+
         self.notion.create_task(
             title="Auto-generate new project ideas",
             project="",
-            instructions=(
-                "GENERATE_IDEAS\n"
-                f"Generate 3 new profitable micro-project ideas.\n"
-                f"Current active projects: {[p['name'] for p in active_projects]}\n"
-                "Avoid ideas similar to existing projects. "
-                "Focus on quick wins with minimal execution cost."
-            ),
+            instructions=instructions,
             priority="low",
         )
         logger.info("Created auto-generate ideas task")

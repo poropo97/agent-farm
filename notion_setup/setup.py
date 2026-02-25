@@ -40,8 +40,8 @@ def get_notion_client() -> Client:
 
 def get_parent_page_id(notion: Client) -> str:
     """
-    Looks for a page named 'Agent Farm' in the workspace.
-    If not found, creates it at the top level (requires integration to have access).
+    Looks for a page named 'Agent Farm' that has been shared with this integration.
+    The page must be created manually in Notion and the integration added as a connection.
     Returns page_id.
     """
     results = notion.search(query="Agent Farm", filter={"property": "object", "value": "page"}).get("results", [])
@@ -50,18 +50,17 @@ def get_parent_page_id(notion: Client) -> str:
             title_parts = r.get("properties", {}).get("title", {}).get("title", [])
             title = "".join(t.get("plain_text", "") for t in title_parts)
             if title == "Agent Farm":
-                console.print(f"[green]Found existing 'Agent Farm' page: {r['id']}[/green]")
+                console.print(f"[green]Found 'Agent Farm' page: {r['id']}[/green]")
                 return r["id"]
 
-    # Create the parent page
-    console.print("[yellow]Creating 'Agent Farm' parent page...[/yellow]")
-    new_page = notion.pages.create(
-        parent={"type": "workspace", "workspace": True},
-        properties={"title": {"title": [{"text": {"content": "Agent Farm"}}]}},
-        icon={"type": "emoji", "emoji": "🤖"},
-    )
-    console.print(f"[green]Created 'Agent Farm' page: {new_page['id']}[/green]")
-    return new_page["id"]
+    # Page not found — guide the user
+    console.print("\n[red bold]❌ 'Agent Farm' page not found or not shared with this integration.[/red bold]\n")
+    console.print("[yellow]Please do the following in Notion:[/yellow]")
+    console.print("  1. Create a new page called [bold]Agent Farm[/bold]")
+    console.print("  2. Open it → click [bold]...[/bold] (top right) → [bold]Connections[/bold]")
+    console.print("  3. Add your integration (the one whose token is in .env)")
+    console.print("  4. Re-run: [cyan]python notion_setup/setup.py[/cyan]\n")
+    sys.exit(1)
 
 
 def list_existing_databases(notion: Client, parent_id: str) -> dict:

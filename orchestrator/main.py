@@ -36,6 +36,7 @@ from orchestrator.notion_client import NotionFarmClient
 from orchestrator.llm_client import LLMClient
 from orchestrator.project_manager import ProjectManager
 from orchestrator.agent_factory import get_agent_for_task
+from orchestrator.learnings_manager import LearningsManager
 
 # ─── Logging setup ───────────────────────────────────────────────────────────
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -86,6 +87,7 @@ class Orchestrator:
         self.machine_name = self.machine["name"]
         self.config: dict = {}
         self._loop_count = 0
+        self.learnings = LearningsManager(self.notion, self.llm)
 
         logger.info(f"Orchestrator starting on machine: [bold]{self.machine_name}[/bold]")
         logger.info(f"LLM Status: {self.llm.get_status()}")
@@ -206,6 +208,21 @@ class Orchestrator:
              "system_prompt": "", "tasks_completed": 0, "success_rate": 0},
         ]
 
+    def _run_strategy_review(self) -> None:
+        """Generate weekly strategic review and log to Activity Log."""
+        try:
+            logger.info("Running weekly strategy review...")
+            strategy = self.learnings.generate_strategy_review()
+            if strategy:
+                self.notion.log_activity(
+                    agent="orchestrator",
+                    project="",
+                    action="task_completed",
+                    result=f"Strategy review: {strategy[:300]}",
+                )
+        except Exception as e:
+            logger.error(f"Strategy review failed: {e}")
+
     def _check_self_update(self) -> bool:
         """Check if there are new commits and self-update if enabled."""
         if self.config.get("self_update_enabled", "true").lower() != "true":
@@ -233,7 +250,7 @@ class Orchestrator:
         human_count = self._process_human_queue()
 
         # 4–7. Project management
-        pm = ProjectManager(self.notion, self.llm, self.config)
+        pm = ProjectManager(self.notion, self.llm, self.config, self.learnings)
 
         ideas_processed = pm.process_new_ideas()
         if ideas_processed:
@@ -247,13 +264,17 @@ class Orchestrator:
 
         dispatched = self._assign_and_run_tasks(pm)
 
-        # Auto-generate ideas (runs periodically based on loop count)
-        if self._loop_count % 12 == 0:  # ~every hour (12 × 5min)
+        # Auto-generate ideas: first loop + every hour after
+        if self._loop_count == 1 or self._loop_count % 12 == 0:
             pm.auto_generate_ideas()
 
         # Self-update check (hourly)
         if self._loop_count % 12 == 0:
             self._check_self_update()
+
+        # Strategy review: loop 1 + weekly (2016 loops × 5 min = 7 days)
+        if self._loop_count == 1 or self._loop_count % 2016 == 0:
+            self._run_strategy_review()
 
         elapsed = time.monotonic() - start
         logger.info(

@@ -100,6 +100,12 @@ class ResearchAgent(BaseAgent):
     def _default_system_prompt(self) -> str:
         return RESEARCH_SYSTEM_PROMPT
 
+    def _load_learnings_brief(self) -> str:
+        try:
+            return self.notion.get_config_value("learnings_brief_cache", "")
+        except Exception:
+            return ""
+
     def _execute(self, task: dict) -> dict:
         """
         Research task types:
@@ -127,12 +133,23 @@ class ResearchAgent(BaseAgent):
         description = self._extract_field(instructions, "DESCRIPTION") or instructions
         goal = self._extract_field(instructions, "GOAL") or "Generate revenue"
 
-        # Step 1: Get viability score
-        prompt = VIABILITY_PROMPT.format(
+        # Step 1: Get viability score (with historical calibration if available)
+        base_prompt = VIABILITY_PROMPT.format(
             idea_name=project_name,
             description=description,
             goal=goal,
         )
+        learnings_context = self._load_learnings_brief()
+        if learnings_context:
+            prompt = (
+                learnings_context + "\n\n"
+                "Use the above context to calibrate your scores. "
+                "If this idea matches a known failure pattern, score lower. "
+                "If it matches a success pattern, increase time_to_revenue and market_exists scores.\n\n"
+                + base_prompt
+            )
+        else:
+            prompt = base_prompt
         llm_response = self._call_llm(prompt, max_tokens=2000, level="complex")
         raw = llm_response["result"]
 
@@ -207,6 +224,8 @@ class ResearchAgent(BaseAgent):
         instructions = task.get("instructions", "")
         count = 3
 
+        has_learnings = "WHAT WE KNOW FROM PAST PROJECTS" in instructions
+
         prompt = f"""Generate {count} profitable micro-SaaS or digital product ideas that AI agents can execute autonomously.
 
 Prioritize:
@@ -222,12 +241,16 @@ For each idea output JSON:
     "description": "What it is and how it works",
     "goal": "How it generates revenue",
     "category": "saas|content|service|data|trading",
-    "estimated_days_to_revenue": <number>
+    "estimated_days_to_revenue": <number>,
+    "why_this_will_work": "one sentence connecting to known patterns or market evidence"
   }},
   ...
 ]
 
 Context/constraints: {instructions}"""
+
+        if has_learnings:
+            prompt += "\nCRITICAL: Use the learnings to guide your ideas. Replicate success patterns, avoid failure patterns.\n"
 
         response = self._call_llm(prompt, max_tokens=2000, level="complex")
         try:

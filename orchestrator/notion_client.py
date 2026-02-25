@@ -176,6 +176,53 @@ class NotionFarmClient:
         config = self.get_system_config()
         return config.get(key, default)
 
+    def set_config_value(self, key: str, value: str) -> str:
+        """Upsert a single key in System Config. Returns page_id."""
+        existing = self._query(
+            self.DB_SYSTEM_CONFIG,
+            filter_={"property": "key", "title": {"equals": key}}
+        )
+        props = {
+            "key":   self._title(key),
+            "value": self._text(str(value)[:2000]),
+        }
+        if existing:
+            page_id = existing[0]["id"]
+            self._update(page_id, props)
+            return page_id
+        else:
+            page = self._create(self.DB_SYSTEM_CONFIG, props)
+            return page["id"]
+
+    def set_config_value_large(self, key: str, value: str) -> None:
+        """Store a large string by chunking into 1900-char pieces.
+
+        Saves: key, key__1, key__2, ... key__N  plus  key__chunks = N+1
+        """
+        chunk_size = 1900
+        chunks = [value[i:i + chunk_size] for i in range(0, max(len(value), 1), chunk_size)]
+        for idx, chunk in enumerate(chunks):
+            chunk_key = key if idx == 0 else f"{key}__{idx}"
+            self.set_config_value(chunk_key, chunk)
+        # Remove any stale chunks beyond current count
+        self.set_config_value(f"{key}__chunks", str(len(chunks)))
+
+    def get_config_value_large(self, key: str, default: str = "") -> str:
+        """Reassemble a value stored via set_config_value_large."""
+        config = self.get_system_config()
+        n_str = config.get(f"{key}__chunks", "0")
+        try:
+            n = int(n_str)
+        except ValueError:
+            n = 0
+        if n == 0:
+            return config.get(key, default)
+        parts = []
+        for idx in range(n):
+            chunk_key = key if idx == 0 else f"{key}__{idx}"
+            parts.append(config.get(chunk_key, ""))
+        return "".join(parts)
+
     # ─── Machines ────────────────────────────────────────────────────────────
 
     def upsert_machine(self, name: str, status: str, ip: str, os_name: str,
